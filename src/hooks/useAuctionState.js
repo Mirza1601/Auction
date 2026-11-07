@@ -140,6 +140,7 @@ export function useAuctionState(isAdmin = false) {
 
     setStateLocal(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater
+      try { localStorage.setItem('auction_nexus_v1', JSON.stringify(next)) } catch {}
       persistState(next).catch(console.error)
       return next
     })
