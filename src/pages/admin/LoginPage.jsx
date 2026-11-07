@@ -36,7 +36,12 @@ export default function AdminLoginPage() {
 
       navigate('/admin/dashboard')
     } catch (err) {
-      setError(err.message || 'Login failed. Please try again.')
+      const msg = err.message || 'Login failed. Please try again.'
+      if (msg.toLowerCase().includes('failed to fetch')) {
+        setError(`Failed to fetch: Cannot connect to Supabase at ${import.meta.env.VITE_SUPABASE_URL || 'unknown URL'}. Please check if your project is Paused or still provisioning in Supabase.`)
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
