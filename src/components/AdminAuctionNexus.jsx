@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import PlayerMasterLibrary from './PlayerMasterLibrary'
 
 // ─── Re-export all shared constants / helpers from original ──────────────────
 
@@ -1287,7 +1288,12 @@ function AuctionView({ state, setState }) {
           AUCTION <span style={{ color: '#8B5CF6' }}>NEXUS</span>
         </div>
         <div style={{ display: 'flex', gap: 4, marginLeft: 16 }}>
-          {[{ key: 'auction', label: 'Auction' }, { key: 'board', label: 'Draft Board' }, { key: 'trade', label: 'Trade Center' }].map(t => (
+          {[
+            { key: 'auction', label: 'Auction' },
+            { key: 'board', label: 'Draft Board' },
+            { key: 'trade', label: 'Trade Center' },
+            { key: 'library', label: '📚 Master Library' }
+          ].map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
               background: activeTab === t.key ? 'rgba(139,92,246,0.25)' : 'transparent',
               border: `1px solid ${activeTab === t.key ? 'rgba(139,92,246,0.5)' : 'transparent'}`,
@@ -1330,6 +1336,12 @@ function AuctionView({ state, setState }) {
             tradeCash={tradeCash} setTradeCash={setTradeCash}
             tradeCashDir={tradeCashDir} setTradeCashDir={setTradeCashDir}
             confirmTrade={confirmTrade} tradeTab={tradeTab} setTradeTab={setTradeTab}
+            notify={notify}
+          />
+        )}
+        {activeTab === 'library' && (
+          <PlayerMasterLibrary
+            state={state} setState={setState}
             notify={notify}
           />
         )}

@@ -11,6 +11,9 @@ dist/
 .env*
 !.env.example
 
+# Backups
+auction_nexus_full_backup/
+
 # Editor & OS files
 .DS_Store
 Thumbs.db
