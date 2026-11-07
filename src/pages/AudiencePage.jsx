@@ -189,18 +189,8 @@ export default function AudiencePage() {
         </div>
       </div>
 
-      {/* Pre-start screen */}
-      {isPreStart ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 56px)', gap: 16, padding: 24 }}>
-          <div style={{ fontSize: 72, marginBottom: 8 }}>🏏</div>
-          <h1 style={{ fontSize: 48, fontWeight: 900, color: '#fff', margin: 0, textAlign: 'center', fontFamily: "'Rajdhani', sans-serif", letterSpacing: '0.05em', textShadow: '0 0 40px rgba(139,92,246,0.4)' }}>
-            AUCTION <span style={{ color: '#8B5CF6' }}>NEXUS</span>
-          </h1>
-          <div style={{ color: '#6B7280', fontSize: 16 }}>The auction hasn't started yet. Stay tuned!</div>
-          <StatusBadge status="upcoming" />
-        </div>
-      ) : (
-        <div style={{ padding: '20px 16px', maxWidth: 1400, margin: '0 auto' }}>
+      {/* Main Broadcast View */}
+      <div style={{ padding: '20px 16px', maxWidth: 1400, margin: '0 auto' }}>
 
           {/* Stats Row */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 20 }}>
@@ -453,10 +443,8 @@ export default function AudiencePage() {
               </div>
             </GlassCard>
           </div>
-
         </div>
-      )}
-    </div>
+      </div>
   )
 }
 

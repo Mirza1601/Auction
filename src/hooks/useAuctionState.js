@@ -2,22 +2,36 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 
 const AUCTION_ROW_ID = 1
+const STORAGE_KEY = 'auction_nexus_v1'
+
+function getLocalState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') return parsed
+    }
+  } catch {}
+  return null
+}
 
 function defaultState() {
+  const local = getLocalState()
+
   return {
-    view: 'setup',
-    auctionStatus: 'upcoming', // upcoming | live | paused | completed
-    teamA: { teamName: 'Team A', captain: 'Captain A', purse: 100, players: [] },
-    teamB: { teamName: 'Team B', captain: 'Captain B', purse: 100, players: [] },
-    playerPool: [],
-    activePlayerId: null,
-    currentBid: 0,
-    currentBidder: null,
-    auctionHistory: [],
-    trades: [],
-    bidLog: [],
-    lastSale: null,
-    setupDone: false,
+    view: local?.view || 'setup',
+    auctionStatus: local?.auctionStatus || 'upcoming', // upcoming | live | paused | completed
+    teamA: local?.teamA || { teamName: 'Team A', captain: 'Captain A', purse: 100, players: [] },
+    teamB: local?.teamB || { teamName: 'Team B', captain: 'Captain B', purse: 100, players: [] },
+    playerPool: Array.isArray(local?.playerPool) ? local.playerPool : [],
+    activePlayerId: local?.activePlayerId || null,
+    currentBid: local?.currentBid || 0,
+    currentBidder: local?.currentBidder || null,
+    auctionHistory: Array.isArray(local?.auctionHistory) ? local.auctionHistory : [],
+    trades: Array.isArray(local?.trades) ? local.trades : [],
+    bidLog: Array.isArray(local?.bidLog) ? local.bidLog : [],
+    lastSale: local?.lastSale || null,
+    setupDone: Boolean(local?.setupDone),
   }
 }
 
@@ -26,50 +40,104 @@ export function useAuctionState(isAdmin = false) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const channelRef = useRef(null)
+  const broadcastRef = useRef(null)
   const latestStateRef = useRef(state)
 
   useEffect(() => {
     latestStateRef.current = state
   }, [state])
 
-  // Load initial state from DB
+  // BroadcastChannel for instant 0ms sync across tabs and windows
   useEffect(() => {
+    let bc = null
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel('auction_nexus_sync')
+        bc.onmessage = (event) => {
+          if (event.data && typeof event.data === 'object') {
+            setStateLocal(prev => ({
+              ...prev,
+              ...event.data,
+              // Never erase local player pool if incoming has none
+              playerPool: (event.data.playerPool && event.data.playerPool.length > 0)
+                ? event.data.playerPool
+                : (prev.playerPool && prev.playerPool.length > 0 ? prev.playerPool : event.data.playerPool || []),
+            }))
+          }
+        }
+        broadcastRef.current = bc
+      }
+    } catch {}
+
+    return () => {
+      bc?.close()
+    }
+  }, [])
+
+  // Load state from DB
+  const fetchDbState = useCallback(async (isInitial = false) => {
     if (!isSupabaseConfigured) {
-      setLoading(false)
-      setError('Supabase is not configured yet. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.')
+      if (isInitial) setLoading(false)
       return
     }
 
-    async function loadInitial() {
-      try {
-        const { data, error: dbError } = await supabase
-          .from('auction_state')
-          .select('state_json, auction_status')
-          .eq('id', AUCTION_ROW_ID)
-          .single()
+    try {
+      const { data, error: dbError } = await supabase
+        .from('auction_state')
+        .select('state_json, auction_status')
+        .eq('id', AUCTION_ROW_ID)
+        .single()
 
-        if (dbError) {
-          if (dbError.code === 'PGRST116') {
-            setStateLocal(defaultState())
-          } else {
-            throw dbError
+      if (dbError) {
+        if (dbError.code === 'PGRST116') {
+          // Row doesn't exist yet: if admin, persist current local state
+          if (isAdmin) {
+            persistState(latestStateRef.current).catch(() => {})
           }
-        } else if (data) {
-          const loaded = { ...defaultState(), ...data.state_json, auctionStatus: data.auction_status }
-          setStateLocal(loaded)
+        } else {
+          console.warn('DB load warning:', dbError.message)
         }
-      } catch (err) {
-        setError(err.message)
-        setStateLocal(defaultState())
-      } finally {
-        setLoading(false)
+      } else if (data) {
+        const dbJson = data.state_json || {}
+        const local = getLocalState()
+
+        // PRESERVE PLAYER POOL: If local has players and DB has none, keep local
+        const mergedPool = (dbJson.playerPool && dbJson.playerPool.length > 0)
+          ? dbJson.playerPool
+          : (local?.playerPool && local.playerPool.length > 0 ? local.playerPool : [])
+
+        const incoming = {
+          ...defaultState(),
+          ...dbJson,
+          playerPool: mergedPool,
+          auctionStatus: data.auction_status || 'upcoming',
+        }
+
+        setStateLocal(incoming)
+
+        // Save local backup
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(incoming))
+        } catch {}
+
+        // If admin and DB was missing the player pool that we had locally, sync it up to DB now
+        if (isAdmin && (!dbJson.playerPool || dbJson.playerPool.length === 0) && mergedPool.length > 0) {
+          persistState(incoming).catch(() => {})
+        }
       }
+    } catch (err) {
+      console.warn('Error loading auction state:', err)
+    } finally {
+      if (isInitial) setLoading(false)
     }
+  }, [isAdmin])
 
-    loadInitial()
-  }, [])
+  // Initial load
+  useEffect(() => {
+    fetchDbState(true)
+  }, [fetchDbState])
 
-  // Set up real-time subscription
+  // Real-time subscription (Supabase WebSocket)
   useEffect(() => {
     if (!isSupabaseConfigured) return
 
@@ -85,32 +153,60 @@ export function useAuctionState(isAdmin = false) {
         },
         (payload) => {
           if (payload.new && payload.new.state_json) {
-            const incoming = {
-              ...defaultState(),
-              ...payload.new.state_json,
-              auctionStatus: payload.new.auction_status,
-            }
-            setStateLocal(incoming)
+            const dbJson = payload.new.state_json
+            setStateLocal(prev => {
+              const incoming = {
+                ...prev,
+                ...dbJson,
+                auctionStatus: payload.new.auction_status || prev.auctionStatus,
+                playerPool: (dbJson.playerPool && dbJson.playerPool.length > 0)
+                  ? dbJson.playerPool
+                  : prev.playerPool,
+              }
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(incoming))
+              } catch {}
+              return incoming
+            })
           }
         }
       )
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setError('Real-time connection lost. Reconnecting...')
-          setTimeout(() => setError(null), 3000)
+          console.warn('Supabase realtime status:', status)
         }
       })
 
     channelRef.current = channel
 
+    // Polling safety net for audience (every 2.5s) to guarantee zero desync
+    let pollInterval = null
+    if (!isAdmin) {
+      pollInterval = setInterval(() => {
+        fetchDbState(false)
+      }, 2500)
+    }
+
     return () => {
       supabase.removeChannel(channel)
+      if (pollInterval) clearInterval(pollInterval)
     }
-  }, [])
+  }, [isAdmin, fetchDbState])
 
-  // Admin-only: persist state to Supabase DB
+  // Persist state to Supabase DB and BroadcastChannel
   const persistState = useCallback(async (newState) => {
-    if (!isAdmin || !isSupabaseConfigured) return
+    // 1. Immediately broadcast to any open tabs on this browser
+    try {
+      broadcastRef.current?.postMessage(newState)
+    } catch {}
+
+    // 2. Persist to local storage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newState))
+    } catch {}
+
+    // 3. Persist to Supabase DB
+    if (!isSupabaseConfigured) return
 
     const { auctionStatus, ...stateWithoutStatus } = newState
 
@@ -127,21 +223,21 @@ export function useAuctionState(isAdmin = false) {
           { onConflict: 'id' }
         )
 
-      if (upsertError) throw upsertError
+      if (upsertError) {
+        console.error('Failed to sync state to Supabase:', upsertError.message)
+      }
     } catch (err) {
-      console.error('Failed to persist state:', err)
-      throw err
+      console.error('Network error persisting state:', err)
     }
-  }, [isAdmin])
+  }, [])
 
-  // Admin-only setState that also persists to DB
+  // Admin setState
   const setState = useCallback(async (updater) => {
     if (!isAdmin) return
 
     setStateLocal(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater
-      try { localStorage.setItem('auction_nexus_v1', JSON.stringify(next)) } catch {}
-      persistState(next).catch(console.error)
+      persistState(next).catch(() => {})
       return next
     })
   }, [isAdmin, persistState])
