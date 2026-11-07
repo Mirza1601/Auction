@@ -1,2 +1,16 @@
-.vercel
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+
+# Vercel
+.vercel/
+
+# Environment files
 .env*
+!.env.example
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
