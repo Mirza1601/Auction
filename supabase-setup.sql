@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS public.auction_state (
   updated_by          uuid REFERENCES auth.users(id)
 );
 
+-- Ensure active_auction_id column exists if table was previously created
+ALTER TABLE public.auction_state ADD COLUMN IF NOT EXISTS active_auction_id text;
+
 -- Enforce single-row constraint on auction_state
 CREATE UNIQUE INDEX IF NOT EXISTS auction_state_single_row ON public.auction_state ((true));
 
